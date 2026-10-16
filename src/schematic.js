@@ -93,7 +93,7 @@ function meter(x, y, name, type, horizontal = false, leftLabel = false) {
   const leads = horizontal
     ? `M${x - 30} ${y}h6M${x + 24} ${y}h6`
     : `M${x} ${y - 35}v11M${x} ${y + 24}v11`;
-  return `<g class="schematic-device"><path d="${leads}"/><circle cx="${x}" cy="${y}" r="24"/><text class="meter-symbol" x="${x}" y="${y + 7}" text-anchor="middle">${type}</text><text class="device-name" x="${horizontal ? x : leftLabel ? x - 36 : x + 36}" y="${horizontal ? (y < 50 ? y + 38 : y - 36) : y + 5}" text-anchor="${horizontal ? "middle" : leftLabel ? "end" : "start"}">${name}</text></g>`;
+  return `<g class="schematic-device" data-inspect="${name === "E3" || name === "I2" || (name === "E2" && x > 400) ? "secondary" : name === "E1" && y < 50 ? "sense" : "primary"}" role="button" tabindex="0" aria-label="Inspect ${name} ${type === "A" ? "ammeter" : "voltmeter"}"><path d="${leads}"/><circle cx="${x}" cy="${y}" r="24"/><text class="meter-symbol" x="${x}" y="${y + 7}" text-anchor="middle">${type}</text><text class="device-name" x="${horizontal ? x : leftLabel ? x - 36 : x + 36}" y="${horizontal ? (y < 50 ? y + 38 : y - 36) : y + 5}" text-anchor="${horizontal ? "middle" : leftLabel ? "end" : "start"}">${name}</text></g>`;
 }
 export function schematic(
   spec,
@@ -111,9 +111,9 @@ export function schematic(
   const valid = validateCircuit(spec, wires),
     next = valid.missing?.[0] || [],
     connected = new Set(wires.flat());
-  let devices = `<g class="schematic-device"><circle cx="60" cy="205" r="24"/><path d="M60 90V181M60 229V320M44 205c5-15 11-15 16 0s11 15 16 0"/><text class="device-name schematic-caption-name" x="60" y="362" text-anchor="middle">AC source</text><path d="M365 90V145 ${coil(365, 145)} M365 265V320 M425 90V145 ${coil(425, 145, 6, 1)} M425 265V320 M390 143V267M400 143V267"/><text class="device-name schematic-caption-name" x="395" y="362" text-anchor="middle">Transformer</text></g>`;
+  let devices = `<g class="schematic-device" data-inspect="primary" role="button" tabindex="0" aria-label="Inspect AC source and transformer"><circle cx="60" cy="205" r="24"/><path d="M60 90V181M60 229V320M44 205c5-15 11-15 16 0s11 15 16 0"/><text class="device-name schematic-caption-name" x="60" y="362" text-anchor="middle">AC source</text><path d="M365 90V145 ${coil(365, 145)} M365 265V320 M425 90V145 ${coil(425, 145, 6, 1)} M425 265V320 M390 143V267M400 143V267"/><text class="device-name schematic-caption-name" x="395" y="362" text-anchor="middle">Transformer</text></g>`;
   if (spec.sat)
-    devices += `<g class="schematic-device"><path d="M160 90h10v-8h60v16h-60v-8M230 90h10M160 40h16M224 40h16"/><text class="device-name" x="200" y="129" text-anchor="middle">R = 400 Ω</text></g>${meter(200, 40, "E1", "V", true)}${meter(280, 215, "E2", "V", false, true)}${meter(610, 215, "E3", "V")}`;
+    devices += `<g class="schematic-device" data-inspect="sense" role="button" tabindex="0" aria-label="Inspect 400 ohm sense resistor"><path d="M160 90h10v-8h60v16h-60v-8M230 90h10M160 40h16M224 40h16"/><text class="device-name" x="200" y="129" text-anchor="middle">R = 400 Ω</text></g>${meter(200, 40, "E1", "V", true)}${meter(280, 215, "E2", "V", false, true)}${meter(610, 215, "E3", "V")}`;
   else {
     devices += `${meter(190, 90, "I1", "A", true)}${meter(spec.short || spec.load ? 280 : 125, 215, "E1", "V", false, spec.short || spec.load)}`;
     if (spec.short) devices += meter(580, 215, "I2", "A");
@@ -125,7 +125,7 @@ export function schematic(
             ? "M730 185V214M710 214H750M710 232H750M730 232V280"
             : "M730 185V205h-9v49h18v-49h-9M730 254V280";
       const loadSwitch = `<path d="M730 150V165 ${loadOpen ? "M730 165l17 13" : "M730 165V185"}"/><circle cx="730" cy="165" r="2.5"/><circle cx="730" cy="185" r="2.5"/>`;
-      devices += `${meter(570, 90, "I2", "A", true)}${meter(610, 215, "E2", "V")}<g class="schematic-device" data-load-switch="${loadOpen ? "open" : "closed"}">${loadSwitch}<path d="${load}"/><text class="device-name" x="766" y="230">${kind}</text>${loadOpen ? '<text class="switch-label" x="760" y="178">Open</text>' : ""}</g>`;
+      devices += `${meter(570, 90, "I2", "A", true)}${meter(610, 215, "E2", "V")}<g class="schematic-device" data-inspect="secondary" role="button" tabindex="0" aria-label="Inspect load bank" data-load-switch="${loadOpen ? "open" : "closed"}">${loadSwitch}<path d="${load}"/><text class="device-name" x="766" y="230">${kind}</text>${loadOpen ? '<text class="switch-label" x="760" y="178">Open</text>' : ""}</g>`;
     } else devices += meter(570, 215, "E2", "V");
   }
   const description = spec.sat
@@ -144,5 +144,5 @@ export function schematic(
   const dots = junctions(actual)
     .map(([x, y]) => `<circle class="junction" cx="${x}" cy="${y}" r="3.5"/>`)
     .join("");
-  return `<div class="schematic-scroll"><div class="circuit-viewport" role="group" aria-label="Figure ${figure}. Click two terminals to connect a lead."><svg viewBox="0 0 810 380" role="img" aria-label="${esc(description)}"><g class="reference-wires">${reference.map((g) => `<path d="${g.path}"/>`).join("")}</g>${paths}${dots}${devices}</svg>${spec.nodes.map((n) => `<button class="terminal ${connected.has(n.key) ? "connected" : ""} ${selected === n.key ? "selected" : ""} ${!selected && next.includes(n.key) ? "next" : ""}" style="left:${(n.x / 810) * 100}%;top:${(n.y / 380) * 100}%" data-terminal="${n.key}" aria-label="${esc(n.group + ": " + n.label)}" aria-pressed="${selected === n.key}" ${powered ? "disabled" : ""}><span class="terminal-label ${n.key.startsWith("T") || ["S", "N"].includes(n.key) ? (n.y === 320 ? "bus-bottom" : "bus-top") : n.key.startsWith("E") || n.key.startsWith("L") ? "probe-label" : n.key.startsWith("I") ? "bus-top" : ""}">${esc(/[+-]$/.test(n.key) ? (n.key.endsWith("+") ? "+" : "−") : n.key)}</span></button>`).join("")}</div></div>`;
+  return `<div class="schematic-scroll"><div class="circuit-viewport" role="group" aria-label="Figure ${figure}. Click two terminals to connect a lead."><svg viewBox="0 0 810 380" role="group" aria-label="${esc(description)}"><g class="reference-wires">${reference.map((g) => `<path d="${g.path}"/>`).join("")}</g>${paths}${dots}${devices}</svg>${spec.nodes.map((n) => `<button class="terminal ${connected.has(n.key) ? "connected" : ""} ${selected === n.key ? "selected" : ""} ${!selected && next.includes(n.key) ? "next" : ""}" style="left:${(n.x / 810) * 100}%;top:${(n.y / 380) * 100}%" data-terminal="${n.key}" aria-label="${esc(n.group + ": " + n.label)}" aria-pressed="${selected === n.key}" ${powered ? "disabled" : ""}><span class="terminal-label ${n.key.startsWith("T") || ["S", "N"].includes(n.key) ? (n.y === 320 ? "bus-bottom" : "bus-top") : n.key.startsWith("E") || n.key.startsWith("L") ? "probe-label" : n.key.startsWith("I") ? "bus-top" : ""}">${esc(/[+-]$/.test(n.key) ? (n.key.endsWith("+") ? "+" : "−") : n.key)}</span></button>`).join("")}</div></div>`;
 }

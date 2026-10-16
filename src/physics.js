@@ -1,4 +1,6 @@
 // Deterministic RMS/fundamental equivalent circuit. No DOM or measured-answer lookup.
+// R/X and tap impedances remain estimates, NOT manufacturer specifications.
+// See docs/LABVOLT-RESEARCH.md: one Vsc/Isc observation cannot identify R and X.
 export const PARAMETERS = Object.freeze({
   frequency: 50,
   r500: 50,

@@ -20,7 +20,9 @@ import {
 } from "./notebook.js";
 import { chart, COLORS } from "./charts.js";
 import { schematic } from "./schematic.js";
-import { liveMath, workedResults } from "./results.js";
+import { liveMath, detailedMath, workedResults } from "./results.js";
+import { bankSetting } from "./load-bank.js";
+import { openReport, reportDocument } from "./report.js";
 import { walkthroughAction, operatingVoltage } from "./walkthrough.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -34,6 +36,7 @@ let id = byId(location.hash.slice(1))?.id || "voltage",
   selected = null,
   manualOpen = false,
   diagramZoomed = false,
+  inspected = null,
   toastTimer;
 let config = defaults();
 function defaults() {
@@ -128,6 +131,7 @@ function switchExperiment(next) {
   // students navigate elsewhere to discover how to leave the current procedure.
   shutdown();
   id = next;
+  inspected = null;
   config = defaults();
   tab = "bench";
   manualOpen = false;
@@ -189,6 +193,7 @@ function bench() {
   return `<section class="walkthrough-step" aria-label="Current experiment step"><div><h2 id="step-title"></h2><p id="step-instruction"></p><span id="step-position" class="step-position">Reading ${current} of ${targets(id).length} · ${label(targetKey(id, config))}</span></div><button class="primary" id="guide-next" data-action="advance" aria-describedby="step-instruction step-position"></button></section>
   <div class="bench-layout"><div class="bench-main"><section class="bench-plate ${diagramZoomed ? "diagram-enlarged" : ""}"><div class="plate-header"><h2>Figure ${exp().figure} · ${id === "voltage" ? "No-load circuit" : id.startsWith("short") ? "Short-circuit test" : id === "saturation" ? "Exciting-current circuit" : "Loaded transformer"}</h2><div class="schematic-tools"><span id="circuit-status" class="circuit-status"></span><button class="diagram-zoom" data-action="zoom-diagram" aria-pressed="${diagramZoomed}">${diagramZoomed ? "Fit" : "Enlarge"}</button></div></div>${schematic(s, wires, { selected, powered, kind: exp().kind, figure: exp().figure, loadOpen: config.loadIndex === 0 })}<p class="schematic-caption">${diagramZoomed ? "Pan horizontally to inspect connections." : validity().valid ? "Voltmeters in parallel · Ammeters in series" : "Dashed lines show the connections to make."}</p></section>
   <details class="manual-controls" ${manualOpen ? "open" : ""}><summary>Manual wiring & instrument controls</summary><div class="manual-body"><div class="wiring-toolbar"><button data-action="auto-wire" ${powered || voltage ? "disabled" : ""}>Connect circuit</button><button data-action="next-wire" ${powered || voltage || validity().valid || validity().invalid ? "disabled" : ""}>Connect next lead</button><button data-action="undo" ${powered || voltage || !wires.length ? "disabled" : ""}>Undo lead</button><button data-action="clear-wires" ${powered || voltage || !wires.length ? "disabled" : ""}>Remove leads</button></div><p id="wiring-help" class="subtle"></p><div class="supply-panel"><div><label>Supply</label><button id="power" class="power-switch ${powered ? "on" : ""}" data-action="power" aria-pressed="${powered}">${powered ? "I · ON" : "O · OFF"}</button></div><div><label for="source-voltage">Source voltage · RMS</label><div class="source-line"><input id="voltage-range" type="range" aria-label="Source voltage slider" min="0" max="${maxVoltage()}" step="0.1" value="${voltage}"><div class="number-with-unit"><input id="source-voltage" type="number" aria-label="Source voltage in volts" min="0" max="${maxVoltage()}" step="0.1" value="${voltage}"><span>V</span></div></div></div><button data-action="zero">Zero supply</button></div>${setupControls()}<div class="button-row"><button id="record" data-action="record">Record current reading</button><button data-action="finish">Switch OFF & disconnect</button></div><p class="subtle" id="record-note"></p><details class="wire-list"><summary>Leads (${wires.length})</summary><div class="wire-items">${wires.map(([a, b], i) => `<button data-remove-wire="${i}" ${powered ? "disabled" : ""}>${a} → ${b} · remove</button>`).join("")}</div></details></div></details>
+  <section class="circuit-inspection"><h2>Circuit inspector</h2><p id="circuit-inspection">Choose an instrument or component to see its connections and live values.</p><div class="button-row"><button data-inspect="primary">Primary / transformer</button><button data-inspect="secondary">Secondary / load</button><button data-inspect="sense">${id === "saturation" ? "400 Ω sense resistor" : "Meter connections"}</button></div><div id="component-detail"></div></section>
   <details class="recorded-data"><summary>Recorded readings · ${progress(exp())}</summary>${measurementTable(id)}</details>
   <details class="experiment-note"><summary>What this experiment demonstrates</summary><p>${exp().concept}</p><p>${exp().task}</p></details></div>
   <aside class="bench-aside"><section class="instrument-panel"><h2>Meter readings <span>AC RMS</span></h2><div class="instrument-meters">${meterDefinitions()
@@ -198,7 +203,7 @@ function bench() {
     )
     .join(
       "",
-    )}</div><p class="instrument-foot" id="instrument-foot"></p></section><section class="live-math" aria-labelledby="live-math-title"><h2 id="live-math-title">Live math</h2><p class="live-math-caption">Updates with voltage and load. No recording required.</p><div id="live-working"></div></section></aside></div>`;
+    )}</div><p class="instrument-foot" id="instrument-foot"></p></section><section class="live-math" aria-labelledby="live-math-title"><h2 id="live-math-title">Live math</h2><p class="live-math-caption">Updates with voltage and load. No recording required.</p><div id="live-working"></div><details class="deep-working"><summary>Detailed equations & model</summary><div id="deep-working"></div></details></section></aside></div>`;
 }
 function maxVoltage() {
   return id.startsWith("short") ? 80 : id === "saturation" ? 300 : 240;
@@ -280,11 +285,40 @@ function updateLive() {
   }[a.action];
   $("#step-instruction").textContent = a.instruction;
   $("#live-working").innerHTML = mathMarkup(liveMath(id, r, config), true);
+  $("#deep-working").innerHTML = mathMarkup(detailedMath(id, r, config), true);
+  if (inspected) updateInspection(r);
   $("#power").textContent = powered ? "I · ON" : "O · OFF";
   $("#power").classList.toggle("on", powered);
   $("#power").setAttribute("aria-pressed", String(powered));
   for (const selector of ["#probe-pair", "#parallel-banks", "#nonlinearity"])
     if ($(selector)) $(selector).disabled = powered || voltage !== 0;
+}
+function updateInspection(r = reading()) {
+  const s = spec();
+  const texts = {
+    primary: `Primary terminals ${s.p.join("–")}: ${fmt(r.epri, 3)} V RMS, ${fmt(r.ipri, 6)} A RMS. The iron core magnetically couples windings; no conductive primary-to-secondary connection exists. Estimated primary series impedance: ${(50 * (id === "saturation" ? 0.5 : 1) ** 2).toFixed(2)} + j${(65 * (id === "saturation" ? 0.5 : 1) ** 2).toFixed(2)} Ω.`,
+    secondary: `Secondary terminals ${s.pair.join("–")}: ${fmt(r.esec, 3)} V RMS, ${fmt(r.isec, 6)} A RMS. ${exp().kind ? `Load ${r.effective === null ? "open" : fmt(r.effective, 3) + " Ω effective"}; ${config.parallel} section(s). Reactive magnitude is not resistance.` : id.startsWith("short") ? "I2 deliberately short-circuits the secondary; only low source voltage is used." : "Secondary open except for an ideal high-impedance voltmeter."}`,
+    sense:
+      id === "saturation"
+        ? `R =400 Ω in series with primary6–9. E1 across R=${fmt(r.e1, 5)} V; I₀=E1/400=${fmt(r.i0, 7)} A. E2 measures the winding, not the source. Source=${fmt(voltage, 2)} V.`
+        : `E1 across ${id === "voltage" ? "source" : "primary1–2"}, I1 in the primary path. ${id.startsWith("short") ? "I2 is a shorting ammeter." : `E2 across secondary ${s.pair.join("–")}${exp().kind ? ", I2 in series with the load" : ""}.`} Ideal meters: infinite voltage-input impedance, zero current-input impedance.`,
+  };
+  $("#component-detail").textContent = texts[inspected];
+  if (inspected === "secondary" && exp().kind) {
+    const bank = bankSetting(
+      [null, 4800, 2400, 1600, 1200, 960][config.loadIndex],
+      config.parallel,
+    );
+    const details = document.createElement("p");
+    details.className = "subtle";
+    details.textContent = `Documented load-bank switches ON: ${bank.switches.join(", ") || "none"}. ${bank.active.length ? `1/|Z| = ${bank.sections} × (${bank.active.map((z) => "1/" + z).join(" + ")}) → ${fmt(bank.effective, 3)} Ω.` : "Open bank: no conducting element."} Source: Festo30328-00, Appendix B,240 V/50 Hz.`;
+    $("#component-detail").append(details);
+  }
+  document
+    .querySelectorAll("[data-inspect]")
+    .forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.inspect === inspected)),
+    );
 }
 function selectTarget(key) {
   selected = null;
@@ -438,7 +472,7 @@ function consistencyWarning(experimentId) {
 function observationsMarkup(observations) {
   return `<div class="observations">${observations.map((o) => `<div><h3>${esc(o.title)}</h3><p>${esc(o.text)}</p></div>`).join("")}</div>`;
 }
-function graphMarkup(experimentId, comparison = true) {
+function graphMarkup(experimentId, comparison = true, interactive = false) {
   if (experimentId === "saturation")
     return chart(
       [
@@ -448,11 +482,13 @@ function graphMarkup(experimentId, comparison = true) {
           points: book.records[experimentId].map((r) => [
             r.reading.e1,
             r.reading.e2,
+            `E2 target ${r.key} V; I₀ ${(r.reading.i0 * 1000).toFixed(4)} mA; E3 ${r.reading.e3.toFixed(4)} V; core strength ${r.config.nonlinearScale}×`,
           ]),
         },
       ],
       "Sense voltage E1 (V)",
       "Primary voltage E2 (V)",
+      { interactive },
     );
   if (byId(experimentId).kind) {
     const selected = EXPERIMENTS.filter(
@@ -465,10 +501,15 @@ function graphMarkup(experimentId, comparison = true) {
       selected.map((e) => ({
         name: e.title,
         color: COLORS[e.id],
-        points: book.records[e.id].map((r) => [r.reading.isec, r.reading.esec]),
+        points: book.records[e.id].map((r) => [
+          r.reading.isec,
+          r.reading.esec,
+          `${r.key === "open" ? "No load" : r.key + " Ω label"}; effective ${r.reading.effective === null ? "∞" : r.reading.effective.toFixed(3)} Ω; primary ${r.reading.epri.toFixed(3)} V / ${r.reading.ipri.toFixed(6)} A; sections ${r.config.parallel}`,
+        ]),
       })),
       "Secondary current ISEC (A)",
       "Secondary voltage ESEC (V)",
+      { interactive },
     )}`;
   }
   return "";
@@ -476,10 +517,10 @@ function graphMarkup(experimentId, comparison = true) {
 function results() {
   const derived = workedResults(id, book.records[id], book.records),
     next = EXPERIMENTS[EXPERIMENTS.findIndex((e) => e.id === id) + 1];
-  return `<div class="results-toolbar"><span>${progress(exp())} readings recorded · simulated RMS values</span><div class="button-row"><button data-action="report">Print / PDF</button><button data-action="csv">CSV</button></div></div><section class="results-section"><h2>Measurements</h2>${measurementTable(id)}${consistencyWarning(id)}</section><section class="results-section"><h2>Worked calculations</h2><p class="subtle">Formula → recorded values → result. Calculations retain full precision; displayed numbers are rounded.</p><div class="worked-grid">${mathMarkup(derived.steps)}</div></section>${id === "saturation" || exp().kind ? `<section class="results-section"><div class="section-heading"><h2>${exp().kind ? "Load curves" : "Excitation curve"}</h2><button data-action="svg">Save graph</button></div>${graphMarkup(id)}</section>` : ""}<section class="results-section"><h2>What the readings show</h2>${observationsMarkup(derived.observations)}</section><div class="results-actions"><button data-tab="bench">Return to experiment</button>${next ? `<button class="primary" data-next-experiment="${next.id}">Next: ${next.title}</button>` : ""}</div><details class="data-files"><summary>Measurement files</summary><div class="button-row"><button data-action="json">Export complete data</button><button data-action="import">Import data</button><button class="danger" data-action="clear-records">Clear this experiment’s readings</button></div></details>`;
+  return `<div class="results-toolbar"><span>${progress(exp())} readings recorded · simulated RMS values</span><div class="button-row"><button data-action="report">Print / PDF</button><button data-action="csv">CSV</button></div></div><section class="results-section"><h2>Measurements</h2>${measurementTable(id)}${consistencyWarning(id)}</section><section class="results-section"><h2>Worked calculations</h2><p class="subtle">Formula → recorded values → result. Calculations retain full precision; displayed numbers are rounded.</p><div class="worked-grid">${mathMarkup(derived.steps)}</div><details class="deep-working"><summary>Full derivation for each recorded operating point</summary>${book.records[id].map((row) => `<h3>${esc(label(row.key))}</h3>${mathMarkup(detailedMath(id, row.reading, row.config))}`).join("")}</details></section>${id === "saturation" || exp().kind ? `<section class="results-section"><div class="section-heading"><h2>${exp().kind ? "Load curves" : "Excitation curve"}</h2><button data-action="svg">Save graph</button></div>${graphMarkup(id, true, true)}</section>` : ""}<section class="results-section"><h2>What the readings show</h2>${observationsMarkup(derived.observations)}</section><div class="results-actions"><button data-tab="bench">Return to experiment</button>${next ? `<button class="primary" data-next-experiment="${next.id}">Next: ${next.title}</button>` : ""}</div><details class="data-files"><summary>Measurement files</summary><div class="button-row"><button data-action="json">Export complete data</button><button data-action="import">Import data</button><button class="danger" data-action="clear-records">Clear this experiment’s readings</button></div></details>`;
 }
 function evidence() {
-  return `<section class="results-section"><h2>Model & reference</h2><dl class="evidence-list"><dt>Manual</dt><dd>500 turns on 1–2 and 5–6; 865 on 3–4. Sense resistor 400 Ω. Source 240 V; short-test current 0.2 A. The manual’s regulation denominator is ENL.</dd><dt>Simulation</dt><dd>Complex AC equivalent circuit with winding copper losses, leakage reactance, core loss and nonlinear excitation. All displayed and exported readings are simulated, not physically obtained.</dd><dt>Estimates</dt><dd>50 Hz; each 500-turn winding uses 50 + j65 Ω. Taps 3–7 / 7–8 / 8–4 use 440 / 310 / 115 estimated turns; 5–9 and 9–6 use 250 each. No measured B–H curve was supplied, so the smooth saturation law is illustrative.</dd><dt>Photographs</dt><dd>The load readings imply impedances near printed values ÷ 3. Three equal banks in parallel is a hypothesis, not proven wiring. Manual values remain the default; the optional interpretation is under manual controls.</dd><dt>Limits</dt><dd>No inrush, temperature or full distorted-waveform solution. The 300 V excitation range and 80 V / 0.45 A short-test limits are virtual teaching settings, not hardware ratings. Use actual lab safety procedures on physical equipment.</dd></dl><p><a href="./docs/PHYSICS.md" target="_blank" rel="noopener">Equations, parameters & validation</a> · <a href="./docs/COVERAGE.md" target="_blank" rel="noopener">Manual coverage</a></p><button data-tab="bench">Return to experiment</button></section>`;
+  return `<section class="results-section"><h2>Model & reference</h2><dl class="evidence-list"><dt>Manual</dt><dd>500 turns on 1–2 and 5–6; 865 on 3–4. Sense resistor 400 Ω. Source 240 V; short-test current 0.2 A. The manual’s regulation denominator is ENL.</dd><dt>Simulation</dt><dd>Complex AC equivalent circuit with winding copper losses, leakage reactance, core loss and nonlinear excitation. All displayed and exported readings are simulated, not physically obtained.</dd><dt>Estimates</dt><dd>50 Hz; each 500-turn winding uses 50 + j65 Ω. Taps 3–7 / 7–8 / 8–4 use 440 / 310 / 115 estimated turns; 5–9 and 9–6 use 250 each. No measured B–H curve was supplied, so the smooth saturation law is illustrative.</dd><dt>Documented banks</dt><dd>Festo30328-00 Appendix B confirms three sections, each containing4800,2400,1200 Ω elements for240 V/50 Hz. Switches1+2 give1600 Ω;1+3 give960 Ω. Values are effective impedances, not automatically divided by three. <a href="./docs/LABVOLT-RESEARCH.md" target="_blank" rel="noopener">Read the source audit</a>.</dd><dt>Photographs</dt><dd>The load readings imply impedances near printed values ÷ 3. Three equal banks in parallel is a hypothesis, not proven wiring. Manual values remain the default; the optional interpretation is under manual controls.</dd><dt>Limits</dt><dd>No inrush, temperature or full distorted-waveform solution. The 300 V excitation range and 80 V / 0.45 A short-test limits are virtual teaching settings, not hardware ratings. Use actual lab safety procedures on physical equipment.</dd></dl><p><a href="./docs/PHYSICS.md" target="_blank" rel="noopener">Equations, parameters & validation</a> · <a href="./docs/COVERAGE.md" target="_blank" rel="noopener">Manual coverage</a></p><button data-tab="bench">Return to experiment</button></section>`;
 }
 function download(content, name, type) {
   const url = URL.createObjectURL(new Blob([content], { type })),
@@ -504,23 +545,56 @@ function exportJSON() {
     "application/json",
   );
 }
-function report() {
-  const win = window.open("", "_blank");
-  if (!win) {
-    toast("Allow pop-ups to open the printable results.");
-    return;
+function reportCircuit(e, row) {
+  const s = circuit(e.id, row.config),
+    container = document.createElement("div");
+  container.innerHTML = schematic(s, suggestedWires(s), {
+    kind: e.kind,
+    figure: e.figure,
+    loadOpen: row.reading.effective === null,
+  });
+  const svg = container.querySelector("svg");
+  svg.removeAttribute("role");
+  svg.classList.add("report-circuit");
+  svg.querySelectorAll("[data-inspect]").forEach((el) => {
+    el.removeAttribute("data-inspect");
+    el.removeAttribute("tabindex");
+    el.removeAttribute("role");
+  });
+  for (const node of s.nodes.filter((n) => n.key.startsWith("T"))) {
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", node.x);
+    text.setAttribute("y", node.y === 320 ? 338 : 77);
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("class", "print-pin");
+    text.textContent = node.key;
+    svg.append(text);
   }
-  const body = EXPERIMENTS.map((e) => {
-    const derived = workedResults(e.id, book.records[e.id], book.records);
-    return `<section><h2>${e.part} · ${e.title}</h2>${measurementTable(e.id)}${consistencyWarning(e.id)}<p>Recorded settings: ${book.records[e.id].map((r) => `${esc(r.key)}: ${r.config.parallel} bank(s), core strength ${r.config.nonlinearScale}×`).join("; ") || "No readings."}</p>${mathMarkup(derived.steps)}${graphMarkup(e.id, false)}${observationsMarkup(derived.observations)}</section>`;
-  }).join("");
-  win.document.write(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>labo · Experiment results</title><style>body{font:13px/1.5 system-ui,sans-serif;color:#172333;max-width:950px;margin:30px auto;padding:0 20px}h1{font-size:24px}h2{font-size:19px}h3{font-size:14px;margin-bottom:4px}table{border-collapse:collapse;width:100%;font-size:11px}td,th{padding:7px;text-align:right;border-bottom:1px solid #d6dde5}th:first-child{text-align:left}caption{text-align:left}section{margin-top:35px}.worked-step{margin:20px 0;break-inside:avoid}.math-formula,.math-substitution,.math-result{font:14px/1.7 monospace}.math-result{font-weight:bold}.chart{width:100%;height:auto}.chart text{font:12px sans-serif;fill:#45566b}.legend{display:flex;flex-wrap:wrap;gap:20px;font-size:11px}.legend i{display:inline-block;width:14px;height:3px;margin:0 6px 3px 0}button{padding:8px 14px}.warning{font-weight:bold}@media print{button{display:none}section{break-before:page}body{margin:0;padding:0}}</style></head><body><button onclick="window.print()">Print / save as PDF</button><h1>Single-phase transformer · Experiment 1</h1><p>Simulated measurements — not physically obtained. Model ${PARAMETERS.model}; estimated winding impedances, tap counts and nonlinear core parameters. Calculations use full-precision recorded values; displayed numbers are rounded.</p>${body}<h2>Load-curve comparison</h2>${graphMarkup("capacitive")}<p>Parameters: 50 Hz, R500 = 50 Ω, X500 = 65 Ω. Saturation is illustrative, not a measured material curve. Manual regulation uses ENL in the denominator; minimum impedance is not a verified nameplate-current test. See docs/PHYSICS.md for model assumptions.</p></body></html>`.replaceAll(
-      'id="measurement-chart"',
-      "",
-    ),
+  return svg.outerHTML;
+}
+function report() {
+  const sections = EXPERIMENTS.map((e) => {
+    const rows = book.records[e.id],
+      derived = workedResults(e.id, rows, book.records),
+      row = rows.at(-1);
+    return {
+      title: `${e.part} · ${e.title}`,
+      count: rows.length,
+      html: `${consistencyWarning(e.id)}${row ? `<div class="report-block circuit-block">${reportCircuit(e, row)}<p class="report-meta">Figure ${e.figure} · circuit shown at last recorded target ${esc(row.key)}. Source ${fmt(row.source)} V; primary ${fmt(row.reading.epri)} V / ${fmt(row.reading.ipri, 6)} A; secondary ${fmt(row.reading.esec)} V / ${fmt(row.reading.isec, 6)} A.</p></div>` : ""}<div class="report-block">${measurementTable(e.id)}</div><p class="report-meta">Recorded settings: ${new Set(rows.map((r) => `${r.config.parallel}/${r.config.nonlinearScale}`)).size === 1 && row ? `All ${rows.length} readings: ${row.config.parallel} section(s), core strength ${row.config.nonlinearScale}×` : rows.map((r) => `${esc(r.key)}: ${r.config.parallel} section(s), core strength ${r.config.nonlinearScale}×`).join("; ")}</p><div class="report-block math-block">${mathMarkup(derived.steps)}</div>${observationsMarkup(derived.observations)}<div class="report-block graph-block">${graphMarkup(e.id, false)}</div>${row ? `<div class="report-block report-derivation"><h3>Detailed equivalent-circuit working · last recorded point</h3>${mathMarkup(detailedMath(e.id, row.reading, row.config))}</div>` : ""}`,
+    };
+  });
+  const hasLoads = EXPERIMENTS.some((e) => e.kind && book.records[e.id].length);
+  const comparison = hasLoads ? graphMarkup("capacitive") : "";
+  const compact = sections.map((section) => {
+    const holder = document.createElement("div");
+    holder.innerHTML = section.html;
+    holder.querySelectorAll(".report-derivation").forEach((el) => el.remove());
+    return { ...section, html: holder.innerHTML };
+  });
+  openReport(
+    reportDocument(compact, comparison),
+    reportDocument(sections, comparison),
   );
-  win.document.close();
 }
 $("#experiments").addEventListener("click", (e) => {
   const el = e.target.closest("[data-experiment]");
@@ -540,7 +614,61 @@ $("#view").addEventListener(
   },
   true,
 );
+function inspectPoint(point) {
+  const svg = point.closest("svg"),
+    panel = svg.parentElement;
+  svg
+    .querySelectorAll(".chart-point")
+    .forEach((p) => p.classList.toggle("selected-point", p === point));
+  panel.querySelector(".chart-inspector").textContent =
+    point.dataset.chartPoint;
+}
+$("#view").addEventListener("focusin", (event) => {
+  if (event.target.matches("[data-chart-point]")) inspectPoint(event.target);
+});
+$("#view").addEventListener("keydown", (event) => {
+  if (
+    event.target.matches("g[data-inspect]") &&
+    ["Enter", " "].includes(event.key)
+  ) {
+    event.preventDefault();
+    inspected = event.target.dataset.inspect;
+    updateInspection();
+    $("#component-detail").scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (
+    event.target.matches("[data-chart-point]") &&
+    ["Enter", " "].includes(event.key)
+  ) {
+    event.preventDefault();
+    inspectPoint(event.target);
+  }
+});
 $("#view").addEventListener("click", (e) => {
+  const point = e.target.closest("[data-chart-point]");
+  if (point) {
+    inspectPoint(point);
+    return;
+  }
+  const toggle = e.target.closest("[data-toggle-series]");
+  if (toggle) {
+    const visible = toggle.getAttribute("aria-pressed") !== "true";
+    toggle.setAttribute("aria-pressed", String(visible));
+    toggle
+      .closest(".legend")
+      .previousElementSibling.querySelector(
+        `[data-chart-series="${toggle.dataset.toggleSeries}"]`,
+      ).style.display = visible ? "" : "none";
+    return;
+  }
+  const component = e.target.closest("[data-inspect]");
+  if (component) {
+    inspected = component.dataset.inspect;
+    updateInspection();
+    $("#component-detail").scrollIntoView({ block: "nearest" });
+    return;
+  }
   const el = e.target.closest("button");
   if (!el) return;
   if (el.dataset.tab) {

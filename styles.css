@@ -1258,6 +1258,153 @@ td {
     width: 100%;
   }
 }
+.schematic-device[data-inspect] {
+  cursor: pointer;
+}
+.schematic-device[data-inspect]:hover path,
+.schematic-device[data-inspect]:focus path {
+  stroke: var(--blue);
+  stroke-width: 2.5;
+}
+.schematic-device[data-inspect]:focus {
+  outline: 2px solid #7098e4;
+  outline-offset: 5px;
+}
+.report-detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin: 0;
+  font-weight: 500;
+}
+.report-detail-toggle input {
+  accent-color: var(--blue);
+}
+.deep-working {
+  margin-top: 16px;
+}
+.deep-working > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+}
+.chart-point[tabindex] {
+  cursor: crosshair;
+}
+.chart-point[tabindex]:hover,
+.chart-point.selected-point,
+.chart-point[tabindex]:focus {
+  stroke-width: 4;
+  fill: #dbe8ff;
+  outline: none;
+  r: 7;
+}
+.chart-inspector {
+  min-height: 48px;
+  padding: 10px 12px;
+  background: #f1f5fb;
+  color: var(--ink);
+  font:
+    12px/1.7 Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+}
+.legend button {
+  background: white;
+  min-height: 34px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.legend button[aria-pressed="false"] {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.circuit-inspection {
+  margin-top: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.circuit-inspection h2 {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.circuit-inspection p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.circuit-inspection button[aria-pressed="true"] {
+  color: var(--blue);
+  background: #eaf0fc;
+  border-color: #7a9bd9;
+}
+#component-detail {
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 12px;
+}
+.report-preview {
+  width: min(1100px, 96vw);
+  max-width: 96vw;
+  height: 94vh;
+  max-height: 94vh;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0;
+  background: #eef1f5;
+  color: var(--ink);
+}
+.report-preview[open] {
+  display: flex;
+  flex-direction: column;
+}
+.report-preview::backdrop {
+  background: #14223780;
+}
+.report-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: white;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.report-toolbar > div {
+  flex: 1;
+}
+.report-toolbar h2 {
+  margin: 0 0 3px;
+  font-size: 16px;
+}
+.report-toolbar p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.report-preview iframe {
+  width: 100%;
+  flex: 1;
+  border: 0;
+  min-height: 0;
+  background: white;
+}
+@media (max-width: 700px) {
+  .report-toolbar {
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+  .report-toolbar > div {
+    flex-basis: 100%;
+  }
+  .report-preview {
+    width: 98vw;
+    max-width: 98vw;
+  }
+  .circuit-inspection .button-row {
+    gap: 5px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;

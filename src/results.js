@@ -1,4 +1,5 @@
-import { WINDINGS, regulation } from "./physics.js";
+import { WINDINGS, PARAMETERS, regulation } from "./physics.js";
+import { bankSetting, equivalentComponent } from "./load-bank.js";
 
 const f = (n, d = 3) => (Number.isFinite(n) ? n.toFixed(d) : "—");
 const step = (title, formula, substitution, result, note = "") => ({
@@ -156,6 +157,131 @@ export function liveMath(id, r, config = {}) {
     ),
     power,
   ];
+}
+
+// Optional expanded working: symbolic relationships, effective bank arithmetic,
+// unit conversions, complex impedance and independent power balance.
+export function detailedMath(id, r, config = {}) {
+  if (!r.epri) return [];
+  const steps = [];
+  const primary = id === "saturation" ? 250 : 500;
+  const secondary =
+    id === "saturation"
+      ? 115
+      : id === "short34"
+        ? 865
+        : id === "voltage"
+          ? WINDINGS[config.pair || "5-6"]
+          : 500;
+  const n = secondary / primary;
+  steps.push(
+    step(
+      "Ideal transformer relationships",
+      "n = NS / NP; ESEC,ideal = n Ecore; IPRI,load = n ISEC",
+      `n = ${secondary} / ${primary}`,
+      f(n, 6),
+      "N counts wire turns; E is RMS voltage (V), I is RMS current (A). Terminal readings include winding drops; induced voltages follow turns.",
+    ),
+  );
+  const z1r = PARAMETERS.r500 * (primary / 500) ** 2,
+    z1x = PARAMETERS.x500 * (primary / 500) ** 2;
+  const z2r = PARAMETERS.r500 * (secondary / 500) ** 2,
+    z2x = PARAMETERS.x500 * (secondary / 500) ** 2;
+  steps.push(
+    step(
+      "Series transformer impedance, referred to the secondary",
+      "Zeq,sec = Z2 + n² Z1",
+      `(${f(z2r)} + j${f(z2x)}) + ${f(n * n, 6)} × (${f(z1r)} + j${f(z1x)}) Ω`,
+      `${f(z2r + n * n * z1r)} + j${f(z2x + n * n * z1x)} Ω`,
+      "R represents copper loss; X represents leakage reactance. These numeric winding parameters and turns² scaling are estimates, not a measured equipment certificate.",
+    ),
+  );
+  if (["resistive", "inductive", "capacitive"].includes(id)) {
+    const kind = { resistive: "R", inductive: "L", capacitive: "C" }[id];
+    const label = [null, 4800, 2400, 1600, 1200, 960][config.loadIndex || 0];
+    const bank = bankSetting(label, config.parallel || 1);
+    steps.push(
+      step(
+        "Load-bank combination · Festo Appendix B",
+        "1 / |Zeffective| = sections × Σ(1 / |Zelement|)",
+        bank.active.length
+          ? `${bank.sections} × (${bank.active.map((z) => "1 / " + z).join(" + ")}) Ω⁻¹`
+          : "All switches open",
+        bank.effective === null
+          ? "∞ Ω · open load"
+          : `${f(bank.effective, 3)} Ω`,
+        `Switches ON: ${bank.switches.join(", ") || "none"}. Elements per section: 4800,2400,1200 Ω at50 Hz. Three-section operation is optional; its use in the photos is unconfirmed.`,
+      ),
+    );
+    if (bank.effective !== null) {
+      const component = equivalentComponent(kind, bank.effective),
+        omega = 2 * Math.PI * PARAMETERS.frequency;
+      if (kind !== "R")
+        steps.push(
+          step(
+            "Equivalent physical load element",
+            component.formula,
+            kind === "L"
+              ? `${f(bank.effective, 3)} / (2π × 50)`
+              : `1 / (2π × 50 × ${f(bank.effective, 3)})`,
+            kind === "L"
+              ? `${f(component.value, 5)} H`
+              : `${f(component.value * 1e6, 5)} µF`,
+            "This converts the nominal reactance into an ideal equivalent. Real coils and capacitors may have losses/tolerances.",
+          ),
+        );
+      steps.push(
+        step(
+          "Complex AC load impedance",
+          "ZR = R; ZL = jωL; ZC = −j/(ωC); ω = 2πf",
+          `ω = 2π × 50 = ${f(omega, 4)} rad/s`,
+          `${kind === "R" ? "" : kind === "L" ? "+j" : "−j"}${f(bank.effective, 3)} Ω`,
+          "j means a90° phase rotation. V/I gives |Z|, not the resistive part of an inductive or capacitive load.",
+        ),
+      );
+    }
+  }
+  if (r.phasors) {
+    const complex = (z) =>
+      `${f(z.re, 6)} ${z.im < 0 ? "−" : "+"} j${f(Math.abs(z.im), 6)}`;
+    steps.push(
+      step(
+        "Complex meter quantities · source-voltage reference",
+        "|a + jb| = √(a² + b²); angle = atan2(b,a)",
+        `I2 = ${complex(r.phasors.secondaryCurrent)} A; V2 = ${complex(r.phasors.secondary)} V`,
+        `|I2| = ${f(r.isec, 7)} A; |V2| = ${f(r.esec, 4)} V`,
+        "These real/imaginary components are phasors, not instantaneous waveforms. A capacitor leads its own terminal voltage; the absolute current angle relative to the source also includes transformer drops. Primary RMS can additionally contain harmonics.",
+      ),
+    );
+
+    const z = id.startsWith("short")
+      ? "0 Ω (short)"
+      : r.effective === null
+        ? "∞ (open)"
+        : `${id === "resistive" ? "" : id === "inductive" ? "+j" : "−j"}${f(r.effective)} Ω`;
+    steps.push(
+      step(
+        "Secondary phasor solve",
+        "I2 = n Ecore / (Z2 + Zload); V2 = Zload I2",
+        `|Ecore| = ${f(r.core, 4)} V; n = ${f(n, 6)}; Zload = ${z}`,
+        `|I2| = ${f(r.isec, 7)} A; |V2| = ${f(r.esec, 4)} V`,
+        "Core voltage is found by the nonlinear primary-branch solve, including exciting current. Complex values are added before taking RMS magnitudes; scalar voltage subtraction is not valid for reactive loads.",
+      ),
+    );
+  }
+  if (Number.isFinite(r.inputWatts))
+    steps.push(
+      step(
+        "Power balance",
+        "PIN = PLOAD + PCOPPER + PCORE",
+        `${f(r.outputWatts, 5)} + ${f(r.copperWatts, 5)} + ${f(r.coreWatts, 5)} W`,
+        `${f(r.inputWatts, 5)} W`,
+        id === "saturation"
+          ? `Sense-resistor loss is additional: E1² /400 = ${f((r.e1 * r.e1) / 400, 5)} W; transformer input above excludes that external resistor.`
+          : "PCOPPER = R1 I1,rms² + R2 I2,rms². Reactive power circulates but is not average real power.",
+      ),
+    );
+  return steps;
 }
 
 export function workedResults(id, records, allRecords = {}) {

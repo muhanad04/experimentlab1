@@ -6,6 +6,9 @@
 - **Estimated:** frequency50 Hz, winding impedances, taps, core parameters below. Not manufacturer specifications. Observations weakly constrain them; no unique parameter identification is possible.
 - **Simulated:** every live reading and exported student record. Deterministic, no added noise. The legacy CSV is also simulated, not calibration data.
 
+## Manufacturer-source follow-up
+[LABVOLT-RESEARCH.md](LABVOLT-RESEARCH.md) records the retrieved Festo30328-00 manual and LVSIM help. Appendix B verifies the240 V/50 Hz parallel-element switch combinations. The default4800/2400/1600/1200/960 Ω values were correct; threefold division is valid only for three identical sections explicitly operating together. Detailed working now shows this bank arithmetic and converts XL/XC into ideal L/C values. No source supplied measured R/X for the specific transformer; existing internal impedance/tap scaling remain labelled estimates. Do not infer R and X separately from Vsc/Isc alone.
+
 ## Research and model selection
 The manual itself specifies the ideal transformer plus series resistance/reactance equivalent circuit. External background consulted: [Transformer — theory, equivalent circuit, leakage flux, EMF equation](https://en.wikipedia.org/wiki/Transformer) (retrieved during implementation, 2026-10-16 environment). Its equivalent-circuit discussion supports copper-loss resistances, series leakage reactance, and shunt magnetizing/core-loss branches. Its Faraday-law discussion supports induced voltage proportional to turns and frequency. This is background theory, not a source for this module’s numeric characteristics. Public reference fetched successfully; Monid discovery lacked an API key, so no paid endpoint was used. No library adds scientific value for this small deterministic model.
 
