@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#f3f5f7" />
+    <meta
+      name="description"
+      content="Single-phase transformer experiment walkthrough, simulated measurements and automatically worked calculations."
+    />
+    <title>labo · Transformer laboratory</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./src/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to workstation</a>
+    <header class="app-header">
+      <a class="brand" href="./" aria-label="labo home">labo</a>
+      <div class="header-actions">
+        <button id="about-button" class="text-button">Reference</button>
+        <button id="export-all">Export / PDF</button>
+      </div>
+    </header>
+    <div class="app-layout">
+      <aside class="sidebar" aria-label="Experiment navigation">
+        <div class="side-title">Single-phase<br />transformer</div>
+        <nav id="experiments"></nav>
+      </aside>
+      <main id="main" tabindex="-1">
+        <section id="intro"></section>
+        <nav class="tabs" aria-label="Experiment views" id="tabs"></nav>
+        <div id="view"></div>
+        <footer class="main-footer">
+          <span>Session only · refresh restarts the experiment</span
+          ><span
+            >* These measurements are computed simulations, not physically
+            validated results.</span
+          >
+        </footer>
+      </main>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <input
+      id="import-file"
+      type="file"
+      accept="application/json,.json"
+      hidden
+    />
+  </body>
+</html>
